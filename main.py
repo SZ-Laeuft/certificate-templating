@@ -1,3 +1,4 @@
+import pathlib
 import pprint
 import time
 
@@ -19,7 +20,8 @@ class Settings(BaseSettings):
     db_name: str = "postgres"
     db_port: int = 5432
     output_dir: DirectoryPath = "output/"
-    template_path: FilePath = "urkunde.docx"
+    template_path: FilePath = "urkunde-mit-kranz.docx"
+    winner_template_path: FilePath = "urkunde-mit-kranz-green.docx"
 
 
 class User(BaseModel):
@@ -28,18 +30,20 @@ class User(BaseModel):
     lastname: str
     count: int
     place: int = 0
+    school_class: str = ""
 
 
 def generate_document(u: User) -> None:
     print(f"User: {u.firstname} {u.lastname} with UID: {u.uid} has {u.count} rounds")
-    doc = DocxTemplate("urkunde.docx")
+    doc = DocxTemplate("urkunde-mit-kranz-green.docx")
     context = {'name': u.firstname + " " + u.lastname,
                'place': u.place,
                'count': u.count}
     doc.render(context)
-    doc.save(f"{settings.output_dir}/{u.uid}.docx")
+    pathlib.Path(f"{settings.output_dir}/{u.school_class}").mkdir(parents=True, exist_ok=True)
+    doc.save(f"{settings.output_dir}/{u.school_class}/{u.uid}.docx")
     pythoncom.CoInitialize()
-    docx2pdf.convert(f"{settings.output_dir}/{u.uid}.docx", f"{settings.output_dir}/{u.uid}.pdf")
+    docx2pdf.convert(f"{settings.output_dir}/{u.school_class}/{u.uid}.docx", f"{settings.output_dir}/{u.school_class}/{u.uid}.pdf")
 
 
 settings = Settings()
@@ -47,10 +51,10 @@ db_url = f"postgresql://{settings.db_user}:{settings.db_password}@{settings.db_h
 with psycopg.connect(db_url) as conn:
     with conn.cursor(row_factory=class_row(User)) as cur:
         stmt = """
-               SELECT DISTINCT u.uid, u.firstname, u.lastname, COUNT(r.scantime)
+               SELECT DISTINCT u.uid, u.firstname, u.lastname, COUNT(r.scantime), u.school_class
                FROM userinformation u
                         JOIN rounds r ON u.uid = r.uid
-               GROUP BY u.uid, u.firstname, u.lastname
+               GROUP BY u.uid, u.firstname, u.lastname, u.school_class
                ORDER BY COUNT(r.scantime) DESC;
                """
         cur.execute(stmt)
@@ -69,6 +73,10 @@ for user in users:
         place += 1
         user.place = place
     current_round_count = user.count
+
+users.sort(key=lambda user: user.school_class)
+print("Users with placing and sorted by school class:")
+pprint.pprint(users)
 
 start_time = time.time()
 print("Generating documents...")
