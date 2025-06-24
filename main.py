@@ -10,6 +10,7 @@ from pydantic import BaseModel, FilePath, DirectoryPath
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import psycopg
 from concurrent.futures import ThreadPoolExecutor
+from PyPDF2 import PdfMerger
 
 
 class Settings(BaseSettings):
@@ -83,4 +84,46 @@ print("Generating documents...")
 with ThreadPoolExecutor() as executor:
     for user in users:
         executor.submit(generate_document, user)
+
 print("Finished after", time.time() - start_time, "seconds")
+
+# combining each class to one file
+for school_class in set(user.school_class for user in users):
+    print(f"Processing class: {school_class}")
+
+    # combining all pdfs
+    pdfs = list(pathlib.Path(settings.output_dir).glob(f"{school_class}/*.pdf"))
+    if not pdfs:
+        print(f"No PDFs found for class {school_class}, skipping...")
+        continue
+
+    print(f"Combining PDFs for class {school_class}: {[pdf.name for pdf in pdfs]}")
+    merger = PdfMerger()
+
+    for pdf in pdfs:
+        merger.append(pdf)
+
+    merger.write("result.pdf")
+    merger.close()
+
+    doc = DocxTemplate("trennseite.docx")
+    context = {'school_class': school_class}
+    doc.render(context)
+    pathlib.Path(f"{settings.output_dir}/{school_class}").mkdir(parents=True, exist_ok=True)
+    doc.save(f"{settings.output_dir}/{school_class}/trennseite.docx")
+    pythoncom.CoInitialize()
+    docx2pdf.convert(f"{settings.output_dir}/{school_class}/trennseite.docx", f"{settings.output_dir}/{school_class}/trennseite.pdf")
+
+    merger = PdfMerger()
+    merger.append(f"{settings.output_dir}/{school_class}/trennseite.pdf")
+    merger.append("result.pdf")
+    merger.write(f"{settings.output_dir}/{school_class}/combined.pdf")
+    merger.close()
+
+pdfs = list(pathlib.Path(settings.output_dir).glob(f"*/combined.pdf"))
+merger = PdfMerger()
+for pdf in pdfs:
+    merger.append(pdf)
+merger.write(f"{settings.output_dir}/all_classes_combined.pdf")
+
+
